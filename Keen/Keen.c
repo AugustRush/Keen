@@ -34,7 +34,6 @@ typedef struct __attribute__((__packed__)) KeenNode {
     uint32_t raw_start;
     uint32_t leaf_lhs_loc;
     uint32_t leaf_rhs_loc;
-    uint8_t self_index;
 } KeenNode;
 
 typedef struct __attribute__((__packed__)) KeenPiece {
@@ -76,24 +75,45 @@ KeenRef KeenRefNew(void) {
     return keen;
 }
 
+//void _pieceAddNewNode(KeenPiece *piece, uint64_t hash, int32_t key_length, int32_t value_length, int32_t content_raw_start) {
+//    KeenNode *node = &(piece->nodes[piece->count]);
+//    node->invalid = true;
+//    node->hash = hash;
+//    node->key_length = key_length;
+//    node->value_length = value_length;
+//    node->raw_start = content_raw_start;
+//    //
+//    piece->count = piece->count + 1;
+//}
 
-bool _nodeHasRightSide(KeenNode *node) {
-    return node->self_index < PIECE_NODE_MAX - 1;
-}
 
-bool _nodeHasLeftSide(KeenNode *node) {
-    return node->self_index > 0;
-}
-
-void _pieceAddNewNode(KeenPiece *piece, uint64_t hash, int32_t key_length, int32_t value_length, int32_t content_raw_start) {
-    KeenNode *node = &(piece->nodes[piece->count]);
+void _pieceReplaceNodeAtIndex(KeenPiece *piece, int index, uint64_t hash, int32_t key_length, int32_t value_length, int32_t content_raw_start) {
+    KeenNode *node = &(piece->nodes[index]);
     node->invalid = true;
     node->hash = hash;
     node->key_length = key_length;
     node->value_length = value_length;
     node->raw_start = content_raw_start;
-    //
-    piece->count = piece->count + 1;
+}
+
+void _pieceInsertNewNode(KeenPiece *piece, uint64_t hash, int32_t key_length, int32_t value_length, int32_t content_raw_start) {
+    int insert_index = piece->count;
+    KeenNode *address = NULL;
+    for (int i = 0; i < piece->count; i++) {
+        KeenNode *node = &(piece->nodes[i]);
+        if (node->hash > hash) {
+            insert_index = i;
+            address = node;
+            break;
+        }
+    }
+    // move
+    int offset = piece->count - insert_index;
+    if (offset > 0) {
+        memcpy(address + 1, address, sizeof(KeenNode) * offset);
+    }
+    
+    _pieceReplaceNodeAtIndex(piece, insert_index, hash, key_length, value_length, content_raw_start);
 }
 
 
@@ -104,9 +124,9 @@ void _keenFillContentRaws(KeenRef keen, const char *key ,const void *raws, int32
         // need extend file capacity
     }
     BYTE *buffer = (BYTE *)raws;
-    memcpy(keen->contents + keen->info->contents_used, key, key_length);
-    keen->contents[key_length] = type;
-    memcpy(keen->contents + key_length + 1, buffer, value_length);
+    memcpy(keen->contents + keen->info->contents_used, key, key_length);// key
+    keen->contents[keen->info->contents_used + key_length] = type; // type
+    memcpy(keen->contents + keen->info->contents_used + key_length + 1, buffer, value_length); // value
     //update after used
     info->contents_used = after_used;
 }
@@ -125,25 +145,21 @@ void KeenRefAddItem(KeenRef keen, const char *key, const void *value, int32_t va
         unsigned long key_length = strlen(key) + 1;
         uint64_t hash = XXH64(key, key_length, 0);
         KeenPiece *piece = keen->head_piece;
-        if (piece->count > 0) {
-
-//            if (head->hash > hash) {
-//
-//
-//            }
-//
-//            if (head->hash < hash) {
-//
-//            }
-//
-//            if (head->hash == hash) {
-//                //need update or resolve confilict
-//                printf("====....");
-//            }
+        
+        if (piece->count < PIECE_NODE_MAX) {
+            if (piece->count > 0) {
+                // insert nre node
+                _pieceInsertNewNode(piece, hash, (uint32_t)key_length, value_length, keen->info->contents_used);
+                piece->count = piece->count + 1;
+                _keenFillContentRaws(keen, key, value, (uint32_t)key_length, value_length, value_type);
+            } else {
+                //add first element
+                _pieceReplaceNodeAtIndex(piece, 0, hash, (uint32_t)key_length, value_length, keen->info->contents_used);
+                piece->count = piece->count + 1;
+                _keenFillContentRaws(keen, key, value, (uint32_t)key_length, value_length, value_type);
+            }
         } else {
-            //add first element
-            _pieceAddNewNode(piece, hash, (uint32_t)key_length, value_length, 0);
-            _keenFillContentRaws(keen, key, value, (uint32_t)key_length, value_length, value_type);
+            
         }
     }
 }
@@ -156,12 +172,9 @@ const BYTE* KeenRefGetItem(KeenRef keen, const char *key) {
         KeenPiece *piece = keen->head_piece;
         if (piece->count > 0) {
             for (int i = 0; i < piece->count; i++) {
-                KeenNode *node = &(piece->nodes[i]);
-                if (node->hash == hash) {
-                    return _keenGetContent(keen, key, (uint32_t)key_length, node->raw_start);
-//                    char *key_buf = alloca(key_length);
-//                    memcpy(key_buf, keen->contents + head->raw_start, key_length);
-//                    return node + key_length;
+                KeenNode node = piece->nodes[i];
+                if (node.hash == hash) {
+                    return _keenGetContent(keen, key, (uint32_t)key_length, node.raw_start);
                 }
             }
         }

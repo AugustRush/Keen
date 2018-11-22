@@ -22,15 +22,18 @@ int main(int argc, const char * argv[]) {
 //        printf("onr is %d\n",*one);
         
         KeenRef keen = KeenRefNew();
-//        KeenRefAddItem(keen, "test1", "10",4,1);
         
         int32_t value = 10000;
         
         KeenRefAddItem(keen, "some new key", &value,4,2);
-//        KeenRefAddItem(keen, "test2", "11",4,1);
+        KeenRefAddItem(keen, "some new key1", &value,4,2);
+        KeenRefAddItem(keen, "some new key2", &value,4,2);
+        KeenRefAddItem(keen, "some new key3", &value,4,2);
+        KeenRefAddItem(keen, "test1", "10",4,1);
+        KeenRefAddItem(keen, "test2", "11",4,1);
         
-        const char *buffer = KeenRefGetItem(keen, "test1");
-        printf("%s",buffer);
+        const BYTE *buffer = KeenRefGetItem(keen, "test1");
+        printf("%s\n",buffer);
         
         const BYTE *bytes = KeenRefGetItem(keen, "some new key");
         int32_t *number = (int32_t *)(bytes + 1);
